@@ -1,0 +1,670 @@
+import React from "react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import moment from "moment";
+import PropTypes from "prop-types";
+import {
+  FormField,
+  FormFieldConfig,
+  validate as formFieldValidate
+} from "../helpers/form.helper";
+import deepmerge from "deepmerge";
+import * as escrowServices from "../services/escrow.service";
+import Notifier from "../helpers/notifier";
+import { withRouter } from "react-router-dom";
+
+class EscrowEdit extends React.Component {
+  static propTypes = {
+    formData: PropTypes.shape({
+      finalDate: PropTypes.any,
+      openDate: PropTypes.any,
+      expectedCloseDate: PropTypes.any
+    })
+  };
+
+  static defaultProps = {
+    formData: {
+      _id: "",
+      escrowNumber: "",
+      parcelNumber: "",
+      transactionType: "",
+      openDate: moment(),
+      expectedCloseDate: null,
+      finalDate: null,
+      street: "",
+      suite: "",
+      city: "",
+      state: "",
+      zip: "",
+      expectedTimeToClose: "",
+      people: [],
+      escrowStatus: ""
+    }
+  };
+  static formDataConfig = {
+    _id: new FormFieldConfig("_id", {
+      required: { value: false }
+    }),
+    escrowStatus: new FormFieldConfig("street", {
+      required: { value: false }
+    }),
+    street: new FormFieldConfig("street", {
+      required: { value: true, message: "Street is required" },
+      maxLength: { value: 50 },
+      minLength: { value: 2 }
+    }),
+    suite: new FormFieldConfig("suite", {
+      required: { value: false }
+    }),
+    state: new FormFieldConfig("state", {
+      require: { value: true, message: "State is required" }
+    }),
+    zip: new FormFieldConfig("zip", {
+      required: { value: true, message: "Zip code is required" },
+      maxLength: { value: 5 },
+      minLength: { value: 5 }
+    }),
+    city: new FormFieldConfig("city", {
+      required: { value: true, message: "city is required" },
+      minLength: { value: 2 },
+      maxLength: { value: 50 }
+    }),
+    escrowNumber: new FormFieldConfig("escrowNumber", {
+      required: { value: true, message: "escrow number is required" },
+      minLength: { value: 2 }
+    }),
+    parcelNumber: new FormFieldConfig("parcelNumber", {
+      required: { value: false }
+    }),
+    transactionType: new FormFieldConfig("transactionType", {
+      required: { value: true }
+    }),
+    finalDate: new FormFieldConfig("finalDate", {
+      required: { value: false }
+    }),
+    openDate: new FormFieldConfig("openDate", {
+      required: { value: true }
+    }),
+    expectedTimeToClose: new FormFieldConfig("expectedTimeToClose", {
+      required: { value: false }
+    }),
+    expectedCloseDate: new FormFieldConfig("expectedCloseDate", {
+      required: { value: true }
+    }),
+    people: new FormFieldConfig("people", {
+      required: { value: false }
+    })
+  };
+  constructor(props) {
+    super(props);
+    const formFields = this.convertPropsToFormFields(props);
+    this.state = {
+      formFields: formFields,
+      formValid: this.validateForm(formFields),
+      showExpectedDate: false
+    };
+    this.onChange = this.onChange.bind(this);
+    this.openDateChange = this.openDateChange.bind(this);
+    this.closeDateChange = this.closeDateChange.bind(this);
+    this.expectedCloseDateChange = this.expectedCloseDateChange.bind(this);
+    this.save = this.save.bind(this);
+  }
+
+  validateForm(formFields) {
+    return Object.values(formFields).reduce((valid, formField) => {
+      return valid && formField.valid;
+    }, true);
+  }
+  convertPropsToFormFields(props) {
+    let escrow = deepmerge(EscrowEdit.defaultProps.formData, props.formData);
+
+    const formFields = {
+      _id: new FormField(escrow._id),
+      escrowStatus: new FormField(escrow.escrowStatus),
+      escrowNumber: new FormField(escrow.escrowNumber),
+      parcelNumber: new FormField(escrow.parcelNumber),
+      transactionType: new FormField(escrow.transactionType),
+      openDate: new FormField(escrow.openDate ? moment(escrow.openDate) : null),
+      expectedCloseDate: new FormField(
+        escrow.expectedCloseDate ? moment(escrow.expectedCloseDate) : null
+      ),
+      finalDate: new FormField(
+        escrow.finalDate ? moment(escrow.finalDate) : null
+      ),
+      street: new FormField(escrow.street),
+      suite: new FormField(escrow.suite),
+      city: new FormField(escrow.city),
+      state: new FormField(escrow.state),
+      zip: new FormField(escrow.zip),
+      expectedTimeToClose: new FormField(escrow.expectedTimeToClose),
+      people: new FormField(escrow.people)
+    };
+    for (let fieldName in formFields) {
+      let field = formFields[fieldName];
+      let config = EscrowEdit.formDataConfig[fieldName];
+      formFieldValidate(field, config);
+    }
+    return formFields;
+  }
+
+  componentWillReceiveProps(nextProps) {
+    const formFields = this.convertPropsToFormFields(nextProps);
+    this.setState({
+      formFields: formFields,
+      formValid: this.validateForm(formFields)
+    });
+  }
+  computeDate = date => {
+    this.setState({
+      showExpectedDate: !this.state.showExpectedDate
+    });
+    this.expectedCloseDateChange(
+      moment(this.state.formFields.openDate.value).add(
+        this.state.formFields.expectedTimeToClose.value,
+        "day"
+      )
+    );
+  };
+
+  onChange = function(event) {
+    const value = event.target.value;
+    const name = event.target.name;
+    const config = EscrowEdit.formDataConfig[name];
+    this.setState(prevState => {
+      const field = { ...prevState.formFields[name] };
+      field.value = value;
+      field.touched = true;
+      formFieldValidate(field, config);
+      const formFields = { ...prevState.formFields, [name]: field };
+      let formValid = this.validateForm(formFields);
+      return { formFields: formFields, formValid: formValid };
+    });
+  };
+  openDateChange(date) {
+    const value = date;
+    const config = EscrowEdit.formDataConfig.openDate;
+    this.setState(prevState => {
+      const field = {
+        ...prevState.formFields.openDate
+      };
+      field.value = value;
+      field.touched = true;
+      formFieldValidate(field, config);
+      const formFields = {
+        ...prevState.formFields,
+        openDate: field
+      };
+      let formValid = this.validateForm(formFields);
+      return { formFields: formFields, formValid: formValid };
+    });
+  }
+
+  closeDateChange = date => {
+    const value = date;
+    const config = EscrowEdit.formDataConfig.finalDate;
+    this.setState(prevState => {
+      const field = {
+        ...prevState.formFields.finalDate
+      };
+      field.value = value;
+      field.touched = true;
+      formFieldValidate(field, config);
+      const formFields = {
+        ...prevState.formFields,
+        finalDate: field
+      };
+      let formValid = this.validateForm(formFields);
+      return { formFields: formFields, formValid: formValid };
+    });
+  };
+
+  expectedCloseDateChange = function(date) {
+    const value = date;
+    const config = EscrowEdit.formDataConfig.expectedCloseDate;
+    this.setState(prevState => {
+      const field = {
+        ...prevState.formFields.expectedCloseDate
+      };
+      field.value = value;
+      field.touched = true;
+      formFieldValidate(field, config);
+      const formFields = {
+        ...prevState.formFields,
+        expectedCloseDate: field
+      };
+      let formValid = this.validateForm(formFields);
+      return { formFields: formFields, formValid: formValid };
+    });
+  };
+
+  save(event) {
+    event.preventDefault();
+    if (!this.state.formValid) {
+      // Mark all fields as touched to display validation errors for all fields
+      const formFields = JSON.parse(JSON.stringify(this.state.formFields));
+      for (let fieldIdentifier in formFields) {
+        formFields[fieldIdentifier].touched = true;
+      }
+      this.setState({ formFields: formFields });
+      return;
+    }
+    const ed = this.state.formFields.expectedCloseDate.value;
+    let expected = null;
+    if (ed) {
+      expected = ed.clone().format("YYYY-MM-DD");
+    } else {
+      expected = "";
+    }
+
+    const fd = this.state.formFields.finalDate.value;
+    let final = null;
+    if (fd) {
+      final = fd.clone().format("YYYY-MM-DD");
+    } else {
+      final = "";
+    }
+    let info = {
+      _id: this.state.formFields._id.value,
+      openDate: this.state.formFields.openDate.value.format("YYYY-MM-DD"),
+      expectedCloseDate: expected,
+      finalDate: final,
+      escrowNumber: this.state.formFields.escrowNumber.value,
+      parcelNumber: this.state.formFields.parcelNumber.value,
+      street: this.state.formFields.street.value,
+      city: this.state.formFields.city.value,
+      suite: this.state.formFields.suite.value,
+      state: this.state.formFields.state.value,
+      zip: this.state.formFields.zip.value,
+      transactionType: this.state.formFields.transactionType.value,
+      escrowStatus: this.state.formFields.escrowStatus.value || "active",
+      people: this.state.formFields.people.value || [],
+      invoiceId: this.props.formData.invoiceId
+    };
+    if (this.state.formFields._id.value) {
+      const data = { escrowInfo: info, personId: null };
+      escrowServices
+        .editEscrow(data)
+        .then(() => {
+          Notifier.success("Escrow Successfully Updated!");
+          this.props.cancel();
+          this.props.onEdit(data.escrowInfo);
+        })
+        .catch(err => {
+          if (err.response) {
+            Notifier.error(err.response.data.errors);
+          }
+        });
+    } else {
+      delete info._id;
+      escrowServices
+        .submitForm(info)
+        .then(response => {
+          Notifier.success("Escrow Successfully Created!");
+          this.props.history.push(
+            "/escrows/" + response.id + "/dashboard/people"
+          );
+        })
+        .catch(err => {
+          console.log(err);
+          Notifier.error("Unable to process request.");
+        });
+    }
+  }
+
+  componentDidMount() {
+    this.state.formFields._id.value &&
+      this.setState({
+        showExpectedDate: true
+      });
+  }
+
+  renderErrorMsgs(field) {
+    return !field.valid && field.touched
+      ? field.brokenRules.map(br => {
+          return (
+            <p key={br.rule} className="note note-error">
+              {br.msg}
+            </p>
+          );
+        })
+      : null;
+  }
+
+  changeFinal = value => this.setState({ value });
+
+  inputClassName = field =>
+    !field.valid && field.touched ? "input state-error" : "input";
+
+  render() {
+    return (
+      <form id="smart-form-register" className="smart-form">
+        <header>Escrow Form</header>
+
+        <fieldset>
+          <section>
+            <label
+              className={this.inputClassName(
+                this.state.formFields.escrowNumber
+              )}
+            >
+              <i className="icon-append fa fa-bars" />
+              <input
+                type="text"
+                name="escrowNumber"
+                placeholder="Escrow Number"
+                value={this.state.formFields.escrowNumber.value}
+                onChange={this.onChange}
+              />
+            </label>
+            {this.renderErrorMsgs(this.state.formFields.escrowNumber)}
+          </section>
+          <section>
+            <label
+              className={this.inputClassName(
+                this.state.formFields.parcelNumber
+              )}
+            >
+              <i className="icon-append fa fa-bars" />
+              <input
+                type="text"
+                name="parcelNumber"
+                placeholder="Parcel Number"
+                onChange={this.onChange}
+                value={this.state.formFields.parcelNumber.value}
+              />
+            </label>
+            {this.renderErrorMsgs(this.state.formFields.parcelNumber)}
+          </section>
+
+          <section>
+            <label
+              className={this.inputClassName(
+                this.state.formFields.transactionType
+              )}
+            >
+              {this.state.formFields._id.value ? "Transaction Type" : null}
+              <select
+                className="form-control col-2"
+                name="transactionType"
+                value={this.state.formFields.transactionType.value}
+                onChange={this.onChange}
+              >
+                <option value="">Transaction Type</option>
+                <option value="Purchase">Purchase</option>
+                <option value="Refi">Refi </option>
+              </select>{" "}
+              <i />{" "}
+            </label>
+          </section>
+
+          <section>
+            <label
+              className={this.inputClassName(
+                this.state.formFields.escrowStatus
+              )}
+            >
+              {this.state.formFields._id.value ? "Escrow Status" : null}
+              <select
+                className="form-control col-2"
+                name="escrowStatus"
+                value={this.state.formFields.escrowStatus.value}
+                onChange={this.onChange}
+              >
+                <option value="">Escrow Status</option>
+                <option value="active">Active</option>
+                <option value="closed">Closed </option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+          </section>
+          {this.renderErrorMsgs(this.state.formFields.transactionType)}
+          <section className="date">
+            <label
+              className={this.inputClassName(this.state.formFields.openDate)}
+            >
+              Open Date
+            </label>
+            <DatePicker
+              dateFormat={"M/D/YYYY"}
+              name="openDate"
+              id="openDate"
+              className="form-control"
+              selected={this.state.formFields.openDate.value}
+              onChange={this.openDateChange}
+              placeholderText="M/D/YYYY"
+            />
+            {this.renderErrorMsgs(this.state.formFields.openDate)}
+          </section>
+
+          {this.state.showExpectedDate && (
+            <section className="date">
+              <label
+                className={this.inputClassName(
+                  this.state.formFields.expectedCloseDate
+                )}
+              >
+                Expected Close Date
+              </label>
+              <DatePicker
+                name="expectedCloseDate"
+                id="expectedCloseDate"
+                className="form-control"
+                selected={this.state.formFields.expectedCloseDate.value}
+                onChange={this.expectedCloseDateChange}
+              />
+              {this.renderErrorMsgs(this.state.formFields.expectedCloseDate)}
+            </section>
+          )}
+
+          {!this.state.showExpectedDate && (
+            <section className=" col-2">
+              <label
+                htmlFor="expectedTimeToClose"
+                className={this.inputClassName(
+                  this.state.formFields.expectedTimeToClose
+                )}
+              >
+                Days To Completion{" "}
+              </label>
+              <input
+                type="number"
+                onBlur={this.computeDate}
+                className="form-control"
+                id="expectedTimeToClose"
+                name="expectedTimeToClose"
+                value={this.state.expectedTimeToClose}
+                onChange={this.onChange}
+              />
+              {this.renderErrorMsgs(this.state.formFields.expectedTimeToClose)}
+            </section>
+          )}
+          {this.state.formFields._id.value ? (
+            <section className="date">
+              <label
+                className={this.inputClassName(this.state.formFields.finalDate)}
+              >
+                Close Date
+              </label>
+              <DatePicker
+                dateFormat={"M/D/YYYY"}
+                className="form-control"
+                name="finalDate"
+                id="finalDate"
+                selected={this.state.formFields.finalDate.value}
+                onChange={this.closeDateChange}
+                placeholderText="M/D/YYYY"
+              />
+              {this.renderErrorMsgs(this.state.formFields.finalDate)}
+            </section>
+          ) : null}
+
+          {this.renderErrorMsgs(this.state.formFields.zip)}
+
+          <section className="date" />
+          <header>Property Address:</header>
+          <section className="col col-6">
+            Street
+            <label
+              htmlFor="street"
+              className={this.inputClassName(this.state.formFields.street)}
+            >
+              <input
+                type="text"
+                name="street"
+                placeholder="Street"
+                onChange={this.onChange}
+                value={this.state.formFields.street.value}
+              />
+            </label>
+            {this.renderErrorMsgs(this.state.formFields.street)}
+          </section>
+
+          <section className="col col-6">
+            Suite
+            <label
+              htmlFor="suite"
+              className={this.inputClassName(this.state.formFields.suite)}
+            >
+              <input
+                type="text"
+                name="suite"
+                placeholder="Suite"
+                onChange={this.onChange}
+                value={this.state.formFields.suite.value}
+              />
+            </label>
+            {this.renderErrorMsgs(this.state.formFields.suite)}
+          </section>
+          <section className="col col-6">
+            City
+            <label
+              htmlFor="city"
+              className={this.inputClassName(this.state.formFields.city)}
+            >
+              <input
+                type="text"
+                name="city"
+                placeholder="City"
+                onChange={this.onChange}
+                value={this.state.formFields.city.value}
+              />
+            </label>
+            {this.renderErrorMsgs(this.state.formFields.city)}
+          </section>
+          <section className="col col-3">
+            State
+            <label className={this.inputClassName(this.state.formFields.state)}>
+              <select
+                id="stateSelect"
+                name="state"
+                onChange={this.onChange}
+                value={this.state.formFields.state.value}
+                className="form-control"
+              >
+                <option value="">Please Select</option>
+                <option value="AL">AL</option>
+                <option value="AK">AK</option>
+                <option value="AZ">AZ</option>
+                <option value="AR">AR</option>
+                <option value="CA">CA</option>
+                <option value="CO">CO</option>
+                <option value="CT">CT</option>
+                <option value="DE">DE</option>
+                <option value="FL">FL</option>
+                <option value="GA">GA</option>
+                <option value="HI">HI</option>
+                <option value="ID">ID</option>
+                <option value="IL">IL</option>
+                <option value="IN">IN</option>
+                <option value="IA">IA</option>
+                <option value="KS">KS</option>
+                <option value="KY">KY</option>
+                <option value="LA">LA</option>
+                <option value="ME">ME</option>
+                <option value="MD">MD</option>
+                <option value="MA">MA</option>
+                <option value="MI">MI</option>
+                <option value="MN">MN</option>
+                <option value="MS">MS</option>
+                <option value="MO">MO</option>
+                <option value="MT">MT</option>
+                <option value="NE">NE</option>
+                <option value="NV">NV</option>
+                <option value="NH">NH</option>
+                <option value="NJ">NJ</option>
+                <option value="NM">NM</option>
+                <option value="NY">NY</option>
+                <option value="NC">NC</option>
+                <option value="ND">ND</option>
+                <option value="OH">OH</option>
+                <option value="OK">OK</option>
+                <option value="OR">OR</option>
+                <option value="PA">PA</option>
+                <option value="RI">RI</option>
+                <option value="SC">SC</option>
+                <option value="SD">SD</option>
+                <option value="TN">TN</option>
+                <option value="TX">TX</option>
+                <option value="UT">UT</option>
+                <option value="VT">VT</option>
+                <option value="VA">VA</option>
+                <option value="WA">WA</option>
+                <option value="WV">WV</option>
+                <option value="WI">WI</option>
+                <option value="WY">WY</option>
+                <option value="">-Terr.-</option>
+              </select>
+            </label>
+            {this.renderErrorMsgs(this.state.formFields.state)}
+          </section>
+          <section className="col col-3">
+            Zip
+            <label className={this.inputClassName(this.state.formFields.zip)}>
+              <input
+                type="number"
+                name="zip"
+                placeholder="Zip"
+                onChange={this.onChange}
+                value={this.state.formFields.zip.value}
+              />
+            </label>
+            {this.renderErrorMsgs(this.state.formFields.zip)}
+          </section>
+        </fieldset>
+        <footer>
+          {this.state.formFields._id.value ? (
+            <button
+              type="submit"
+              className="btn btn-primary"
+              id="updateEscrow"
+              onClick={this.save}
+              disabled={!this.state.formValid}
+            >
+              Update Escrow
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="btn btn-primary"
+              id="updateEscrow"
+              onClick={this.save}
+              disabled={!this.state.formValid}
+            >
+              Continue to Dashboard
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-warning"
+            id="addEscrow"
+            onClick={this.props.cancel}
+          >
+            Cancel
+          </button>
+        </footer>
+      </form>
+    );
+  }
+}
+
+export default withRouter(EscrowEdit);

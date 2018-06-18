@@ -1,0 +1,106 @@
+const mongodb = require("../mongodb.connection");
+const conn = mongodb.connection;
+const ObjectId = mongodb.ObjectId;
+const utilityFuncs = require("../helpers/utilities.js");
+const path = require("path");
+const emailsService = require("../services/emails.service");
+const apiPrefix = "api/invites";
+const writeEmail = require("../helpers/email.parser");
+const responses = require("../models/responses");
+
+module.exports = sendNotification = (email, msg) => (req, res, next) => {
+  if (req.body.personId) {
+    return conn
+      .db()
+      .collection("people")
+      .aggregate([
+        { $match: { _id: ObjectId(req.body.personId) } },
+        {
+          $lookup: {
+            from: "tenants",
+            localField: "tenantId",
+            foreignField: "_id",
+            as: "tenant"
+          }
+        },
+        { $unwind: "$tenant" }
+      ])
+      .toArray()
+      .then(response => {
+        response.map(item => {
+          if (!item.userId) {
+            next();
+            return;
+          } else if (item.receiveSms === true && item.phoneNumber.length > 0) {
+            let data = {
+              toNumber: item.phoneNumber,
+              content:
+                "You have been added to escrow #" +
+                req.body.escrowInfo.escrowNumber +
+                ". Located at " +
+                req.body.escrowInfo.street +
+                ", " +
+                req.body.escrowInfo.city +
+                " " +
+                req.body.escrowInfo.state
+            };
+            msg.create(data);
+            next();
+            return;
+          } else {
+            const file = path.join(__dirname, "../emails/addedPerson.html");
+
+            const name = {
+              fName: item.firstName,
+              lName: item.lastName,
+              mName: item.middleName,
+              pName: item.prefixName,
+              sName: item.suffixName
+            };
+
+            const emailMap = {
+              fullName: utilityFuncs.printName(name),
+              tenantName: utilityFuncs.trimTrailingPeriod(item.tenant.name),
+              escrowId: req.body.escrowInfo._id,
+              tenantEmployeeName:
+                req.session.passport.user.name ||
+                req.session.passport.user.email,
+              escrowNumber: req.body.escrowInfo.escrowNumber,
+              propertyAddress:
+                req.body.escrowInfo.street +
+                ", " +
+                req.body.escrowInfo.city +
+                " " +
+                req.body.escrowInfo.state,
+              tenantDomain: process.env.TENANT_DOMAIN
+            };
+            writeEmail(file, emailMap, (text, html) => {
+              const invite = {
+                to: item.publicEmail,
+                from: process.env.SUPERADMIN_EMAIL,
+                subject: `You've been added!`,
+                text: text,
+                html: html
+              };
+              emailsService
+                .sendEmail(invite)
+                // EMAIL success
+                .then(() => {
+                  next();
+                })
+                // EMAIL error
+                .catch(err => {
+                  // Per SendGrid API: Extract error msg
+                  const { message, code } = err;
+                  console.log(err.toString());
+                  res.status(code).send(new responses.ErrorResponse(message));
+                });
+            });
+          }
+        });
+      });
+  } else {
+    next();
+  }
+};
+
